@@ -9,7 +9,7 @@ bcrypt
 Pillow
 python-multipart
 requests
-"pydantic[email]"
+pydantic[email]
 reportlab
 jose
-"python-jose[cryptography]"
+python-jose[cryptography]
