@@ -5,8 +5,11 @@ sqlalchemy
 pymysql
 passlib
 dotenv
-"pydantic[email]"
-"python-jose[cryptography]"
 bcrypt
 Pillow
 python-multipart
+requests
+"pydantic[email]"
+reportlab
+jose
+"python-jose[cryptography]"
