@@ -3,13 +3,12 @@ uvicorn
 httpx
 sqlalchemy
 pymysql
-passlib
-dotenv
-bcrypt
+passlib[bcrypt]
+python-dotenv
+bcrypt==4.0.1
 Pillow
 python-multipart
 requests
 pydantic[email]
 reportlab
-jose
 python-jose[cryptography]
