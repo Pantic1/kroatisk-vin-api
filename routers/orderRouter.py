@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.params import Body
 from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 from services.dinero_client import DineroError
@@ -220,3 +221,98 @@ def create_dinero_invoice(order_id: str, book: bool = True, db: Session = Depend
         return {"invoice": inv, "booked": booked}
     except DineroError as e:
         raise HTTPException(status_code=502, detail=f"Dinero: {e}")
+
+
+@router.put("/{order_id}/items")
+def update_order_items(
+    order_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    # 1) Find ordre
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # 2) Tjek status
+    if order.status != "review":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ordre kan kun redigeres når status er 'review' (er: {order.status})",
+        )
+
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise HTTPException(
+            status_code=400, detail="'items' skal være en liste")
+
+    if len(items) == 0:
+        raise HTTPException(
+            status_code=400, detail="Ordre skal have mindst én linje")
+
+    # 3) Validér hver linje + tjek at produkterne findes
+    cleaned = []
+    for line in items:
+        product_id = line.get("product_id")
+        if not product_id:
+            raise HTTPException(
+                status_code=400, detail="Hver linje skal have product_id")
+
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Produkt {product_id} findes ikke",
+            )
+
+        try:
+            qty = Decimal(str(line.get("quantity")))
+            price = Decimal(str(line.get("price")))
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="quantity og price skal være tal",
+            )
+
+        if qty <= 0:
+            raise HTTPException(status_code=400, detail="Antal skal være > 0")
+        if price < 0:
+            raise HTTPException(
+                status_code=400, detail="Pris kan ikke være negativ")
+
+        cleaned.append({"product_id": product_id,
+                       "quantity": qty, "price": price})
+
+    # 4) Slet alle eksisterende linjer + indsæt nye
+    try:
+        db.query(OrderItem).filter(OrderItem.order_id == order.id).delete(
+            synchronize_session=False
+        )
+        db.flush()
+
+        new_subtotal = Decimal("0")
+        for ln in cleaned:
+            db.add(OrderItem(
+                order_id=order.id,
+                product_id=ln["product_id"],
+                quantity=ln["quantity"],
+                price=ln["price"],
+            ))
+            new_subtotal += ln["quantity"] * ln["price"]
+
+        # 5) Opdater subtotal på ordren
+        order.subtotal_price = float(new_subtotal)
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"DB-fejl: {e}")
+
+    return {
+        "ok":            True,
+        "order_id":      order.id,
+        "items_count":   len(cleaned),
+        "subtotal_price": float(order.subtotal_price or 0),
+    }
