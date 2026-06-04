@@ -17,6 +17,7 @@ import routers.productsRouter as productsRouter
 import routers.uploadsRouter as uploadsRouter
 import routers.companyRouter as companyRouter
 import routers.userRouter as userRouter
+import routers.notifyRouter as notifyRouter
 
 
 sample_config = """
@@ -57,3 +58,4 @@ app.include_router(productsRouter.router, prefix='/products', tags=['Products'])
 app.include_router(uploadsRouter.router, prefix='/uploads', tags=['Uploads'])
 app.include_router(companyRouter.router, prefix='/company', tags=['Company'])
 app.include_router(orderRouter.router, prefix='/orders', tags=['Orders'])
+app.include_router(notifyRouter.router, prefix='/notify', tags=['Notify'])

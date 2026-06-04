@@ -101,7 +101,7 @@ def create_order_in_review(payload: OrderCreateReview, db: Session = Depends(get
 def list_sellers(db: Session = Depends(get_db)):
     from config.model import User
     users = db.query(User).all()
-    return [{"id": u.id, "username": u.username} for u in users]
+    return [{"id": u.id, "username": u.username, "email": u.email} for u in users]
 
 
 @router.get("/", response_model=list[OrderOut])
