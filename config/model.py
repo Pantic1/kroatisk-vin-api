@@ -18,6 +18,7 @@ class OrderStatus(str, enum.Enum):
     cancelled = "cancelled"
     review = "review"
 
+
 def generate_uuid():
     return str(uuid.uuid4())
 
@@ -46,17 +47,23 @@ class Order(Base):
     __tablename__ = "orders"
     id = Column(CHAR(36), primary_key=True, default=generate_uuid)
     customer_id = Column(CHAR(36), ForeignKey("companies.id"), nullable=False)
+    seller_id = Column(CHAR(36), ForeignKey("users.id"), nullable=True)
     order_id = Column(Integer, nullable=True)
     order_date = Column(TIMESTAMP, default=datetime.utcnow)
     status = Column(Enum(OrderStatus), default=OrderStatus.review)
-    invoice_url  = Column(String(500), nullable=True)
-    invoice_date = Column(DateTime,   nullable=True)    
+    invoice_url = Column(String(500), nullable=True)
+    invoice_date = Column(DateTime,   nullable=True)
     subtotal_price = Column(DECIMAL, nullable=True)
     tracking_number = Column(String, nullable=True)
     notes = Column(Text)
 
     items = relationship("OrderItem", back_populates="order")
     company = relationship("Company", back_populates="orders")
+    seller = relationship("User", foreign_keys=[seller_id])
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class OrderItem(Base):
@@ -137,7 +144,6 @@ class Company(Base):
     )
     orders = relationship("Order", back_populates="company")
 
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -152,8 +158,8 @@ class Contact(Base):
         "companies.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=True)
-    role: Mapped[str] = mapped_column(
-        String(100), nullable=True)  # fx Direktør, Ejer
+    phone: Mapped[str] = mapped_column(String(50), nullable=True)
+    role: Mapped[str] = mapped_column(String(100), nullable=True)
     ownership_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     company: Mapped["Company"] = relationship(

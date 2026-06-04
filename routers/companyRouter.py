@@ -57,6 +57,7 @@ def create_company(payload: CompanyCreate, db: Session = Depends(get_db)):
             Contact(
                 name=k.name,
                 email=k.email,
+                phone=k.phone,
                 role=k.role,
                 company_id=company_id,
                 ownership_pct=k.ownershipPct,
@@ -147,6 +148,7 @@ def update_company(company_id: str, payload: CompanyUpdate, db: Session = Depend
                 Contact(
                     name=k.name,
                     email=k.email,
+                    phone=k.phone,
                     role=k.role,
                     ownership_pct=k.ownershipPct,
                 )

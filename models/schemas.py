@@ -82,14 +82,15 @@ class ContactBase(BaseModel):
     id: str
     name: str
     email: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[str] = None
-    # JSON bruger camelCase 'ownershipPct', DB-kolonnen er 'ownership_pct'
-    ownershipPct: Optional[float] = None
+    ownershipPct: Optional[float] = Field(default=None, alias="ownership_pct")
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class ContactCreate(BaseModel):
     name: str
     email: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[str] = None
     ownershipPct: Optional[float] = None
     model_config = ConfigDict(populate_by_name=True)
@@ -97,6 +98,7 @@ class ContactCreate(BaseModel):
 class ContactUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[str] = None
     ownershipPct: Optional[float] = None
     model_config = ConfigDict(populate_by_name=True)
@@ -121,9 +123,7 @@ class CompanyBase(BaseModel):
     notes: Optional[str] = None
     status: Optional[str] = "Draft"
 
-    # svar inkluderer Contacter
-    Contacter: List[ContactBase] = Field(default_factory=list)
-
+    contacts: List[ContactBase] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
@@ -169,7 +169,7 @@ class CompanyUpdate(BaseModel):
     notes: Optional[str] = None
     status: Optional[str] = None
 
-    Contacter: Optional[List[ContactCreate]] = None
+    contacts: Optional[List[ContactCreate]] = Field(default=None, alias="kontakter")
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -194,6 +194,11 @@ class OrderCreateReview(BaseModel):
 class CompanyMini(BaseModel):
     id: str
     name: str
+    cvr: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    zip: Optional[str] = None
+    city: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class OrderItemOut(BaseModel):
@@ -203,14 +208,23 @@ class OrderItemOut(BaseModel):
     price: Decimal
     model_config = ConfigDict(from_attributes=True)
 
+class SellerMini(BaseModel):
+    id: str
+    username: str
+    model_config = ConfigDict(from_attributes=True)
+
 class OrderOut(BaseModel):
     id: str
+    order_id: Optional[int] = None
     customer_id: str
-    customer: Optional[CompanyMini] = None  # <-- her kommer company name med
+    seller_id: Optional[str] = None
+    seller: Optional[SellerMini] = None
+    customer: Optional[CompanyMini] = Field(default=None, alias="company")
     order_date: datetime
     status: str
+    subtotal_price: Optional[float] = None
     invoice_url: Optional[str] = None
-    invoice_date: Optional[str] = None
+    invoice_date: Optional[datetime] = None
     tracking_number: Optional[str] = None
     notes: Optional[str] = None
     items: List[OrderItemOut]

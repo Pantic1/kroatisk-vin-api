@@ -97,24 +97,41 @@ def create_order_in_review(payload: OrderCreateReview, db: Session = Depends(get
     )
 
 
-@router.get("/")
+@router.get("/sellers")
+def list_sellers(db: Session = Depends(get_db)):
+    from config.model import User
+    users = db.query(User).all()
+    return [{"id": u.id, "username": u.username} for u in users]
+
+
+@router.get("/", response_model=list[OrderOut])
 def list_orders_all(db: Session = Depends(get_db)):
     orders = (db.query(Order)
-                .options(joinedload(Order.company), selectinload(Order.items))
+                .options(joinedload(Order.company), joinedload(Order.seller), selectinload(Order.items))
                 .order_by(Order.order_date.desc())
                 .all())
     return orders
 
 
-@router.get("/{order_id}")
+@router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: str, db: Session = Depends(get_db)):
     order = (db.query(Order)
-             .options(joinedload(Order.company), selectinload(Order.items))
+             .options(joinedload(Order.company), joinedload(Order.seller), selectinload(Order.items))
              .filter(Order.id == order_id)
              .first())
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+
+@router.put("/{order_id}/seller")
+def update_order_seller(order_id: str, payload: dict = Body(...), db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order.seller_id = payload.get("seller_id")
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/{order_id}/status")
