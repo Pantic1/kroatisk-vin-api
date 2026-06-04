@@ -10,21 +10,20 @@ from sqlalchemy import exc, inspect
 from config.model import User
 from controllers.authController import create_access_token
 from models.schemas import LoginRequest, TokenResponse, UserCreate, UserResponse
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 
 router = APIRouter()
 MAX_RETRIES = 3
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class Hash:
     @staticmethod
     def encrypt(password: str) -> str:
-        return pwd_context.hash(password)
+        return _bcrypt.hashpw(password[:72].encode(), _bcrypt.gensalt()).decode()
 
     @staticmethod
     def verify(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password, hashed_password)
+        return _bcrypt.checkpw(plain_password[:72].encode(), hashed_password.encode())
     
 @router.post("/signup", response_model=UserResponse)
 def signup(user: UserCreate, db: Session = Depends(get_db)):

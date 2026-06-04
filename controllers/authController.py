@@ -1,6 +1,6 @@
+import bcrypt as _bcrypt
 from datetime import datetime, timedelta
 from models import schemas
-from passlib.context import CryptContext
 from jose import jwt, JWTError
 from fastapi import status, HTTPException, Depends, APIRouter
 from fastapi.security import OAuth2PasswordBearer
@@ -9,8 +9,6 @@ from config.config import get_db
 from typing import List
 
 router = APIRouter()
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # SECRET_KEY = os.environ.get("SECRET_KEY")
 # ALGORITHM = os.environ.get("ALGORITHM")
@@ -23,22 +21,19 @@ REFRESH_TOKEN_EXPIRE_MINUTES = 60 * 24 * 300
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 class Hash:
     @staticmethod
-    def bcrypt(password: str):
-        return pwd_context.hash(password)
+    def bcrypt(password: str) -> str:
+        return _bcrypt.hashpw(password[:72].encode(), _bcrypt.gensalt()).decode()
 
     @staticmethod
-    def verify(plain_password, hashed_password):
-        return pwd_context.verify(plain_password, hashed_password)
-    
+    def verify(plain_password: str, hashed_password: str) -> bool:
+        return _bcrypt.checkpw(plain_password[:72].encode(), hashed_password.encode())
 
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return _bcrypt.checkpw(plain_password[:72].encode(), hashed_password.encode())
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
