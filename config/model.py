@@ -168,3 +168,107 @@ class Contact(Base):
     __table_args__ = (
         UniqueConstraint("company_id", "name", name="uq_Contact_company_name"),
     )
+
+
+# =========================================================
+# Emballage / kvartalsafregning (glas + pap)
+# =========================================================
+
+# Standardvægt for pap pr. flaske (kg) – som brugt i regnearket
+DEFAULT_CARTON_KG = 0.0648
+
+
+class PackagingMaterial(Base):
+    """Stamdata: tom flaskevægt pr. vare. Bruges til at regne glas-/papvægt
+    ud fra antallet af flasker på en leverandørfaktura."""
+    __tablename__ = "packaging_materials"
+
+    id = Column(CHAR(36), primary_key=True, default=generate_uuid)
+    # Galićs varenummer fra pakirna lista, fx "0108". Primær matchnøgle.
+    article_code = Column(String(32), nullable=True, unique=True, index=True)
+    name = Column(String(255), nullable=False, unique=True)
+    # Ekstra søgeord til matchning mod fakturalinjer, adskilt med ';'
+    match_text = Column(String(500), nullable=True)
+    bottle_size = Column(String(20), nullable=True)
+    glass_kg = Column(DECIMAL(10, 4), nullable=True)
+    carton_kg = Column(DECIMAL(10, 4), nullable=False,
+                       default=DEFAULT_CARTON_KG)
+    active = Column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PackagingInvoice(Base):
+    """En leverandørfaktura (typisk fra Galic) med de importerede flasker."""
+    __tablename__ = "packaging_invoices"
+
+    id = Column(CHAR(36), primary_key=True, default=generate_uuid)
+    invoice_number = Column(String(100), nullable=True)
+    invoice_date = Column(DateTime, nullable=True)
+    quarter = Column(String(10), nullable=True, index=True)
+    supplier = Column(String(255), nullable=True, default="Galic")
+    file_url = Column(String(500), nullable=True)
+    source_filename = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    lines = relationship(
+        "PackagingLine",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="PackagingLine.line_no",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PackagingLine(Base):
+    """En varelinje på en faktura. Glas-/papvægt i alt regnes ud fra
+    antal * vægt pr. flaske – gemmes ikke, så tallene aldrig bliver forældede."""
+    __tablename__ = "packaging_lines"
+
+    id = Column(CHAR(36), primary_key=True, default=generate_uuid)
+    invoice_id = Column(CHAR(36), ForeignKey(
+        "packaging_invoices.id", ondelete="CASCADE"), nullable=False, index=True)
+    material_id = Column(CHAR(36), ForeignKey(
+        "packaging_materials.id"), nullable=True)
+
+    line_no = Column(Integer, nullable=True)
+    article_code = Column(String(32), nullable=True)
+    item_name = Column(String(255), nullable=False)
+    quantity = Column(Integer, nullable=False, default=0)
+    # Vægt pr. flaske – kopieres fra stamdata ved import, men kan rettes pr. linje
+    glass_kg = Column(DECIMAL(10, 4), nullable=True)
+    carton_kg = Column(DECIMAL(10, 4), nullable=False,
+                       default=DEFAULT_CARTON_KG)
+    note = Column(String(500), nullable=True)
+
+    invoice = relationship("PackagingInvoice", back_populates="lines")
+    material = relationship("PackagingMaterial")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    @property
+    def status(self) -> str:
+        """'OK' når flaskevægten er kendt, ellers 'MANGLER' – som i regnearket."""
+        return "OK" if self.glass_kg is not None else "MANGLER"
+
+    @property
+    def glass_total_kg(self):
+        if self.glass_kg is None:
+            return None
+        return float(self.glass_kg) * (self.quantity or 0)
+
+    @property
+    def carton_total_kg(self):
+        if self.carton_kg is None:
+            return None
+        return float(self.carton_kg) * (self.quantity or 0)

@@ -18,6 +18,7 @@ import routers.uploadsRouter as uploadsRouter
 import routers.companyRouter as companyRouter
 import routers.userRouter as userRouter
 import routers.notifyRouter as notifyRouter
+import routers.packagingRouter as packagingRouter
 
 
 sample_config = """
@@ -37,6 +38,16 @@ Base = declarative_base()
 
 # Create the table in the database
 Base.metadata.create_all(bind=engine)
+
+# Emballage-tabellerne er nye og ligger i config.model. create_all opretter kun
+# det der mangler, så de eksisterende tabeller røres ikke.
+from config.model import (Base as ModelBase, PackagingInvoice, PackagingLine,
+                          PackagingMaterial)
+ModelBase.metadata.create_all(bind=engine, tables=[
+    PackagingMaterial.__table__,
+    PackagingInvoice.__table__,
+    PackagingLine.__table__,
+])
 
 app = FastAPI()
 
@@ -59,3 +70,4 @@ app.include_router(uploadsRouter.router, prefix='/uploads', tags=['Uploads'])
 app.include_router(companyRouter.router, prefix='/company', tags=['Company'])
 app.include_router(orderRouter.router, prefix='/orders', tags=['Orders'])
 app.include_router(notifyRouter.router, prefix='/notify', tags=['Notify'])
+app.include_router(packagingRouter.router, prefix='/packaging', tags=['Emballage'])

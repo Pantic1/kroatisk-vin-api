@@ -236,3 +236,118 @@ class OrderWithCustomerNameOut(OrderOut):
 
 class UpdateStatusRequest(BaseModel):
     status: Literal["pending","review","confirmed","shipped","delivered","cancelled"]
+
+
+# =========================
+# Emballage / kvartalsafregning
+# =========================
+class PackagingMaterialBase(BaseModel):
+    article_code: Optional[str] = Field(default=None, example="0108")
+    name: str = Field(..., example="Graševina 0,75L")
+    match_text: Optional[str] = None
+    bottle_size: Optional[str] = None
+    glass_kg: Optional[float] = Field(default=None, description="Tom flaskevægt i kg")
+    carton_kg: float = 0.0648
+    active: bool = True
+
+class PackagingMaterialCreate(PackagingMaterialBase):
+    pass
+
+class PackagingMaterialUpdate(BaseModel):
+    article_code: Optional[str] = None
+    name: Optional[str] = None
+    match_text: Optional[str] = None
+    bottle_size: Optional[str] = None
+    glass_kg: Optional[float] = None
+    carton_kg: Optional[float] = None
+    active: Optional[bool] = None
+
+class PackagingMaterialOut(PackagingMaterialBase):
+    id: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PackagingLineIn(BaseModel):
+    line_no: Optional[int] = None
+    article_code: Optional[str] = None
+    item_name: str
+    quantity: int = 0
+    glass_kg: Optional[float] = None
+    carton_kg: float = 0.0648
+    material_id: Optional[str] = None
+    note: Optional[str] = None
+
+class PackagingLineOut(PackagingLineIn):
+    id: str
+    status: str
+    glass_total_kg: Optional[float] = None
+    carton_total_kg: Optional[float] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PackagingInvoiceCreate(BaseModel):
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    quarter: Optional[str] = Field(
+        default=None, description="Udledes af datoen hvis den ikke sendes med")
+    supplier: Optional[str] = "Galic"
+    file_url: Optional[str] = None
+    source_filename: Optional[str] = None
+    notes: Optional[str] = None
+    lines: List[PackagingLineIn] = Field(default_factory=list)
+
+class PackagingInvoiceUpdate(PackagingInvoiceCreate):
+    lines: Optional[List[PackagingLineIn]] = None
+
+class PackagingInvoiceOut(BaseModel):
+    id: str
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    quarter: Optional[str] = None
+    supplier: Optional[str] = None
+    file_url: Optional[str] = None
+    source_filename: Optional[str] = None
+    notes: Optional[str] = None
+    lines: List[PackagingLineOut] = Field(default_factory=list)
+    total_bottles: int = 0
+    total_glass_kg: Optional[float] = None
+    total_carton_kg: Optional[float] = None
+    missing_count: int = 0
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ParsedLine(BaseModel):
+    line_no: Optional[int] = None
+    article_code: Optional[str] = None
+    item_name: str
+    quantity: int
+    glass_kg: Optional[float] = None
+    carton_kg: float = 0.0648
+    material_id: Optional[str] = None
+    matched_name: Optional[str] = None
+    match_type: Optional[str] = None      # 'code' | 'name' | None
+    match_confidence: Optional[float] = None
+    status: str = "MANGLER"
+
+class ParsedInvoice(BaseModel):
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    quarter: Optional[str] = None
+    supplier: str = "Galic"
+    source_filename: Optional[str] = None
+    packages: Optional[int] = None
+    lines: List[ParsedLine] = Field(default_factory=list)
+    unmatched_count: int = 0
+    duplicate_of: Optional[str] = Field(
+        default=None, description="Id på en allerede gemt faktura med samme nummer")
+    warnings: List[str] = Field(default_factory=list)
+
+
+class QuarterSummary(BaseModel):
+    quarter: str
+    bottles: int
+    glass_kg: Optional[float] = None
+    carton_kg: float = 0.0
+    invoices: int = 0
+    missing_count: int = 0
+    status: str = "OK"

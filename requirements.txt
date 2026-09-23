@@ -12,3 +12,5 @@ requests
 pydantic[email]
 reportlab
 python-jose[cryptography]
+openpyxl
+pdfplumber
