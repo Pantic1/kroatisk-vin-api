@@ -345,9 +345,44 @@ class ParsedInvoice(BaseModel):
 
 class QuarterSummary(BaseModel):
     quarter: str
+    # Importeret fra Galić
     bottles: int
     glass_kg: Optional[float] = None
     carton_kg: float = 0.0
     invoices: int = 0
     missing_count: int = 0
     status: str = "OK"
+    # Solgt ud af huset (trækkes fra)
+    out_bottles: int = 0
+    out_glass_kg: Optional[float] = None
+    out_carton_kg: float = 0.0
+    out_missing_count: int = 0
+    # Tilbage i huset = import - ud af huset
+    net_bottles: int = 0
+    net_glass_kg: Optional[float] = None
+    net_carton_kg: float = 0.0
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PackagingOutboundIn(BaseModel):
+    """En linje i opgørelsen over flasker solgt ud af huset."""
+    material_id: Optional[str] = None
+    article_code: Optional[str] = None
+    item_name: str
+    quantity: int = 0
+    glass_kg: Optional[float] = None
+    carton_kg: float = 0.0648
+    note: Optional[str] = None
+
+class PackagingOutboundOut(PackagingOutboundIn):
+    id: str
+    quarter: str
+    status: str
+    glass_total_kg: Optional[float] = None
+    carton_total_kg: Optional[float] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class PackagingOutboundQuarter(BaseModel):
+    """Hele kvartalets udgående salg. Gemmes samlet: listen erstatter
+    kvartalets nuværende linjer."""
+    lines: List[PackagingOutboundIn] = Field(default_factory=list)

@@ -42,11 +42,12 @@ Base.metadata.create_all(bind=engine)
 # Emballage-tabellerne er nye og ligger i config.model. create_all opretter kun
 # det der mangler, så de eksisterende tabeller røres ikke.
 from config.model import (Base as ModelBase, PackagingInvoice, PackagingLine,
-                          PackagingMaterial)
+                          PackagingMaterial, PackagingOutbound)
 ModelBase.metadata.create_all(bind=engine, tables=[
     PackagingMaterial.__table__,
     PackagingInvoice.__table__,
     PackagingLine.__table__,
+    PackagingOutbound.__table__,
 ])
 
 app = FastAPI()

@@ -272,3 +272,49 @@ class PackagingLine(Base):
         if self.carton_kg is None:
             return None
         return float(self.carton_kg) * (self.quantity or 0)
+
+
+class PackagingOutbound(Base):
+    """Flasker solgt ud af huset, som kunden tager med hjem. Indtastes manuelt
+    pr. kvartal og trækkes fra det importerede, så det der bliver tilbage er
+    det der drikkes i huset."""
+    __tablename__ = "packaging_outbound"
+
+    id = Column(CHAR(36), primary_key=True, default=generate_uuid)
+    quarter = Column(String(10), nullable=False, index=True)
+    material_id = Column(CHAR(36), ForeignKey(
+        "packaging_materials.id"), nullable=True)
+
+    # Galićs varenummer, kopieret fra stamdata. Gemmes på linjen, så koblingen
+    # til importen overlever at en stamdata-vare bliver slettet.
+    article_code = Column(String(32), nullable=True)
+    item_name = Column(String(255), nullable=False)
+    quantity = Column(Integer, nullable=False, default=0)
+    # Kopieres fra stamdata ved oprettelse, men kan rettes pr. linje
+    glass_kg = Column(DECIMAL(10, 4), nullable=True)
+    carton_kg = Column(DECIMAL(10, 4), nullable=False,
+                       default=DEFAULT_CARTON_KG)
+    note = Column(String(500), nullable=True)
+
+    material = relationship("PackagingMaterial")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    @property
+    def status(self) -> str:
+        return "OK" if self.glass_kg is not None else "MANGLER"
+
+    @property
+    def glass_total_kg(self):
+        if self.glass_kg is None:
+            return None
+        return float(self.glass_kg) * (self.quantity or 0)
+
+    @property
+    def carton_total_kg(self):
+        if self.carton_kg is None:
+            return None
+        return float(self.carton_kg) * (self.quantity or 0)

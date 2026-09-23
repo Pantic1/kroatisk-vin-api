@@ -3,6 +3,7 @@ og eksport af kvartalsregnearket."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -11,17 +12,20 @@ from sqlalchemy.orm import Session, joinedload
 
 from config.config import get_db
 from config.model import (DEFAULT_CARTON_KG, PackagingInvoice, PackagingLine,
-                          PackagingMaterial)
+                          PackagingMaterial, PackagingOutbound)
 from models.schemas import (PackagingInvoiceCreate, PackagingInvoiceOut,
                             PackagingInvoiceUpdate, PackagingMaterialCreate,
                             PackagingMaterialOut, PackagingMaterialUpdate,
+                            PackagingOutboundOut, PackagingOutboundQuarter,
                             ParsedInvoice, ParsedLine, QuarterSummary)
 from services.packaging_excel import build_workbook, quarter_of
-from services.packaging_pdf import match_material, parse_packing_list
+from services.packaging_pdf import (match_material, normalize,
+                                    parse_packing_list)
 
 router = APIRouter()
 
 MAX_PDF_BYTES = 15 * 1024 * 1024
+QUARTER_RE = re.compile(r"^Q[1-4] \d{4}$")
 
 
 # =========================================================
@@ -72,6 +76,8 @@ def delete_material(material_id: str, db: Session = Depends(get_db)):
     # Linjer beholder deres egen kopi af vægten, så gamle afregninger står fast
     db.query(PackagingLine).filter(
         PackagingLine.material_id == material_id).update({"material_id": None})
+    db.query(PackagingOutbound).filter(
+        PackagingOutbound.material_id == material_id).update({"material_id": None})
     db.delete(material)
     db.commit()
     return {"detail": "Varen er slettet"}
@@ -292,6 +298,80 @@ def delete_invoice(invoice_id: str, db: Session = Depends(get_db)):
 
 
 # =========================================================
+# Ud af huset: flasker kunden tager med hjem
+# =========================================================
+
+def _serialize_outbound(row: PackagingOutbound) -> dict:
+    return {
+        "id": row.id,
+        "quarter": row.quarter,
+        "material_id": row.material_id,
+        "article_code": row.article_code,
+        "item_name": row.item_name,
+        "quantity": row.quantity,
+        "glass_kg": float(row.glass_kg) if row.glass_kg is not None else None,
+        "carton_kg": float(row.carton_kg) if row.carton_kg is not None
+        else DEFAULT_CARTON_KG,
+        "note": row.note,
+        "status": row.status,
+        "glass_total_kg": row.glass_total_kg,
+        "carton_total_kg": row.carton_total_kg,
+    }
+
+
+@router.get("/outbound", response_model=list[PackagingOutboundOut])
+def list_outbound(quarter: str | None = None, db: Session = Depends(get_db)):
+    q = db.query(PackagingOutbound)
+    if quarter:
+        q = q.filter(PackagingOutbound.quarter == quarter)
+    rows = q.order_by(PackagingOutbound.quarter,
+                      PackagingOutbound.item_name).all()
+    return [_serialize_outbound(r) for r in rows]
+
+
+@router.put("/outbound/{quarter}", response_model=list[PackagingOutboundOut])
+def replace_outbound(quarter: str, payload: PackagingOutboundQuarter,
+                     db: Session = Depends(get_db)):
+    """Gemmer hele kvartalet på én gang – listen erstatter det der lå før.
+    Det matcher siden, hvor man retter i en tabel og gemmer samlet."""
+    if not QUARTER_RE.match(quarter):
+        raise HTTPException(400, "Kvartal skal skrives som fx 'Q3 2026'")
+
+    db.query(PackagingOutbound).filter(
+        PackagingOutbound.quarter == quarter).delete()
+    for line in payload.lines:
+        if not line.item_name:
+            continue
+        db.add(PackagingOutbound(
+            quarter=quarter,
+            material_id=line.material_id,
+            article_code=line.article_code,
+            item_name=line.item_name,
+            quantity=line.quantity or 0,
+            glass_kg=line.glass_kg,
+            carton_kg=line.carton_kg if line.carton_kg is not None
+            else DEFAULT_CARTON_KG,
+            note=line.note,
+        ))
+    db.commit()
+
+    rows = db.query(PackagingOutbound).filter(
+        PackagingOutbound.quarter == quarter).order_by(
+        PackagingOutbound.item_name).all()
+    return [_serialize_outbound(r) for r in rows]
+
+
+@router.delete("/outbound/{row_id}")
+def delete_outbound(row_id: str, db: Session = Depends(get_db)):
+    row = db.get(PackagingOutbound, row_id)
+    if not row:
+        raise HTTPException(404, "Linjen findes ikke")
+    db.delete(row)
+    db.commit()
+    return {"detail": "Linjen er slettet"}
+
+
+# =========================================================
 # Oversigt og eksport
 # =========================================================
 
@@ -308,6 +388,8 @@ def _rows_by_quarter(db: Session, year: int | None = None) -> dict:
             rows.setdefault(quarter, []).append({
                 "invoice_date": invoice.invoice_date,
                 "invoice_number": invoice.invoice_number,
+                "material_id": line.material_id,
+                "article_code": line.article_code,
                 "item_name": line.item_name,
                 "quantity": line.quantity,
                 "glass_kg": float(line.glass_kg) if line.glass_kg is not None else None,
@@ -318,45 +400,142 @@ def _rows_by_quarter(db: Session, year: int | None = None) -> dict:
     return rows
 
 
+def _outbound_by_quarter(db: Session, year: int | None = None) -> dict:
+    rows: dict[str, list[dict]] = {}
+    for row in db.query(PackagingOutbound).order_by(PackagingOutbound.item_name).all():
+        if year and not (row.quarter or "").endswith(str(year)):
+            continue
+        rows.setdefault(row.quarter, []).append({
+            "quarter": row.quarter,
+            "material_id": row.material_id,
+            "article_code": row.article_code,
+            "item_name": row.item_name,
+            "quantity": row.quantity,
+            "glass_kg": float(row.glass_kg) if row.glass_kg is not None else None,
+            "carton_kg": float(row.carton_kg) if row.carton_kg is not None
+            else DEFAULT_CARTON_KG,
+            "note": row.note,
+        })
+    return rows
+
+
+def _quarter_key(quarter: str):
+    try:
+        qq, yy = quarter.split()
+        return (int(yy), int(qq[1:]))
+    except Exception:
+        return (0, 0)
+
+
+def _totals(lines: list[dict]) -> tuple:
+    """(flasker, glas kg, pap kg, antal linjer uden vægt). Glas er None hvis
+    bare én vægt mangler – så vises der ikke et tal der ser rigtigt ud."""
+    missing = sum(1 for l in lines if l["glass_kg"] is None)
+    bottles = sum(l["quantity"] or 0 for l in lines)
+    glass = None if missing else round(
+        sum((l["glass_kg"] or 0) * (l["quantity"] or 0) for l in lines), 3)
+    carton = round(
+        sum((l["carton_kg"] or 0) * (l["quantity"] or 0) for l in lines), 3)
+    return bottles, glass, carton, missing
+
+
 @router.get("/summary", response_model=list[QuarterSummary])
 def summary(db: Session = Depends(get_db)):
-    rows = _rows_by_quarter(db)
+    imported = _rows_by_quarter(db)
+    outbound = _outbound_by_quarter(db)
+
     invoice_counts: dict[str, set] = {}
     for invoice in db.query(PackagingInvoice).all():
         quarter = invoice.quarter or quarter_of(invoice.invoice_date) or "Ukendt"
         invoice_counts.setdefault(quarter, set()).add(invoice.id)
 
+    quarters = sorted(set(imported) | set(outbound), key=_quarter_key)
+
+    # Lager løber over kvartalsskel: man kan sælge i Q4 det der kom ind i Q3.
+    # Derfor sammenlignes akkumuleret, ikke kvartal for kvartal.
+    #
+    # Importlinjer bærer navnet som det står på følgesedlen ("GRAŠEVINA 0,75l
+    # 2024"), de udgående bærer stamdata-navnet, så navnet duer ikke som nøgle.
+    #
+    # Galićs varenummer er den rigtige nøgle, men det står ikke nødvendigvis på
+    # begge sider: importlinjen har det altid fra følgesedlen, mens en udgående
+    # linje kun har det hvis den er valgt ud fra stamdata. Derfor slås nummeret
+    # op via stamdata når linjen ikke selv har det – ellers ville de to sider få
+    # hver sin nøgle og aldrig tælle sammen.
+    codes_by_material = {
+        m.id: (m.article_code or "").strip().lstrip("0")
+        for m in db.query(PackagingMaterial).all()
+    }
+
+    def key(line):
+        code = (line.get("article_code") or "").strip().lstrip("0")
+        if not code and line.get("material_id"):
+            code = codes_by_material.get(line["material_id"]) or ""
+        if code:
+            return f"nr:{code}"
+        # Varer uden varenummer hos Galić (fx Rosé Magnum) kobles på stamdata
+        if line.get("material_id"):
+            return f"id:{line['material_id']}"
+        return f"navn:{normalize(line['item_name'])}"
+
+    seen_in: dict[str, int] = {}
+    seen_out: dict[str, int] = {}
+    labels: dict[str, str] = {}
+
     out = []
-    for quarter, lines in rows.items():
-        missing = sum(1 for l in lines if l["glass_kg"] is None)
+    for quarter in quarters:
+        in_lines = imported.get(quarter, [])
+        out_lines = outbound.get(quarter, [])
+
+        in_bottles, in_glass, in_carton, in_missing = _totals(in_lines)
+        out_bottles, out_glass, out_carton, out_missing = _totals(out_lines)
+
+        for l in in_lines:
+            k = key(l)
+            seen_in[k] = seen_in.get(k, 0) + (l["quantity"] or 0)
+            labels.setdefault(k, l["item_name"])
+        for l in out_lines:
+            k = key(l)
+            seen_out[k] = seen_out.get(k, 0) + (l["quantity"] or 0)
+            labels[k] = l["item_name"]
+
+        warnings = []
+        for k, sold in seen_out.items():
+            bought = seen_in.get(k, 0)
+            if sold > bought:
+                warnings.append(
+                    f"{labels.get(k, k)}: solgt {sold} ud af huset, men kun {bought} "
+                    f"importeret til og med {quarter}")
+
         out.append(QuarterSummary(
             quarter=quarter,
-            bottles=sum(l["quantity"] or 0 for l in lines),
-            glass_kg=None if missing else round(
-                sum((l["glass_kg"] or 0) * (l["quantity"] or 0) for l in lines), 3),
-            carton_kg=round(
-                sum((l["carton_kg"] or 0) * (l["quantity"] or 0) for l in lines), 3),
+            bottles=in_bottles,
+            glass_kg=in_glass,
+            carton_kg=in_carton,
             invoices=len(invoice_counts.get(quarter, set())),
-            missing_count=missing,
-            status="OK" if missing == 0 else "UFULDSTÆNDIG",
+            missing_count=in_missing,
+            status="OK" if in_missing == 0 and out_missing == 0 else "UFULDSTÆNDIG",
+            out_bottles=out_bottles,
+            out_glass_kg=out_glass,
+            out_carton_kg=out_carton,
+            out_missing_count=out_missing,
+            net_bottles=in_bottles - out_bottles,
+            net_glass_kg=None if (in_glass is None or out_glass is None)
+            else round(in_glass - out_glass, 3),
+            net_carton_kg=round(in_carton - out_carton, 3),
+            warnings=warnings,
         ))
 
-    def key(s: QuarterSummary):
-        try:
-            qq, yy = s.quarter.split()
-            return (int(yy), int(qq[1:]))
-        except Exception:
-            return (0, 0)
-
-    return sorted(out, key=key)
+    return out
 
 
 @router.get("/export")
 def export_excel(year: int | None = Query(default=None), db: Session = Depends(get_db)):
     rows = _rows_by_quarter(db, year=year)
-    data = build_workbook(rows)
+    outbound = _outbound_by_quarter(db, year=year)
+    data = build_workbook(rows, outbound)
 
-    years = sorted({q.split()[-1] for q in rows if " " in q})
+    years = sorted({q.split()[-1] for q in set(rows) | set(outbound) if " " in q})
     span = f"{years[0]}_{years[-1]}" if len(years) > 1 else (
         years[0] if years else "tom")
     filename = f"Kvartalsafregning_{span}_Emballage_Galic.xlsx"
