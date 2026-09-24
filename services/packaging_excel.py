@@ -14,6 +14,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+# genudstilles, så eksisterende kald stadig virker
+from services.packaging_helpers import quarter_of  # noqa: F401
+
 # Overskrifterne brydes over to linjer. Autofilterets knap lægger sig i højre
 # ende af overskriftsfeltet, så en lang etiket på én linje bliver dækket af den.
 HEADERS = [
@@ -67,13 +70,6 @@ def _style_cell(cell, align="left", fmt=None, zebra=False, missing=False,
         cell.fill = MISSING_FILL
     elif zebra:
         cell.fill = ZEBRA_FILL
-
-
-def quarter_of(dt) -> str | None:
-    """datetime -> 'Q3 2026' (almindelige kalenderkvartaler)."""
-    if not dt:
-        return None
-    return f"Q{(dt.month - 1) // 3 + 1} {dt.year}"
 
 
 def _quarter_sort_key(q: str):

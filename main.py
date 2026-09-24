@@ -1,5 +1,6 @@
 # Standard library
 import configparser
+import os
 
 # Third-party packages
 from fastapi import FastAPI, Depends
@@ -39,16 +40,22 @@ Base = declarative_base()
 # Create the table in the database
 Base.metadata.create_all(bind=engine)
 
-# Emballage-tabellerne er nye og ligger i config.model. create_all opretter kun
-# det der mangler, så de eksisterende tabeller røres ikke.
-from config.model import (Base as ModelBase, PackagingInvoice, PackagingLine,
-                          PackagingMaterial, PackagingOutbound)
-ModelBase.metadata.create_all(bind=engine, tables=[
-    PackagingMaterial.__table__,
-    PackagingInvoice.__table__,
-    PackagingLine.__table__,
-    PackagingOutbound.__table__,
-])
+# Emballage-tabellerne oprettes af scripts/seed_packaging_materials.py.
+#
+# De blev før oprettet her ved import, men API'et kører serverless: modulet
+# importeres forfra ved hver kold start, og create_all koster et databasekald
+# pr. tabel — målt til ca. 256 ms — selv når alting for længst findes.
+# Sæt CREATE_TABLES=1 hvis de skal oprettes ved opstart alligevel.
+if os.environ.get("CREATE_TABLES") == "1":
+    from config.model import (Base as ModelBase, PackagingInvoice,
+                              PackagingLine, PackagingMaterial,
+                              PackagingOutbound)
+    ModelBase.metadata.create_all(bind=engine, tables=[
+        PackagingMaterial.__table__,
+        PackagingInvoice.__table__,
+        PackagingLine.__table__,
+        PackagingOutbound.__table__,
+    ])
 
 app = FastAPI()
 

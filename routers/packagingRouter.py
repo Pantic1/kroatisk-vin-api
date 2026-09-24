@@ -18,9 +18,11 @@ from models.schemas import (PackagingInvoiceCreate, PackagingInvoiceOut,
                             PackagingMaterialOut, PackagingMaterialUpdate,
                             PackagingOutboundOut, PackagingOutboundQuarter,
                             ParsedInvoice, ParsedLine, QuarterSummary)
-from services.packaging_excel import build_workbook, quarter_of
-from services.packaging_pdf import (match_material, normalize,
-                                    parse_packing_list)
+from services.packaging_helpers import normalize, quarter_of
+
+# build_workbook (openpyxl) og parse_packing_list (pdfplumber) importeres inde i
+# de endpoints der bruger dem. Modulet importeres forfra ved hver kold start, og
+# de to biblioteker skal ikke betales af et login.
 
 router = APIRouter()
 
@@ -88,6 +90,8 @@ def delete_material(material_id: str, db: Session = Depends(get_db)):
 # =========================================================
 
 def _to_parsed_line(item: dict, materials: list) -> ParsedLine:
+    from services.packaging_pdf import match_material
+
     material, confidence, how = match_material(item, materials)
     return ParsedLine(
         line_no=item.get("line_no"),
@@ -118,6 +122,8 @@ async def parse_invoice(file: UploadFile = File(...), db: Session = Depends(get_
         raise HTTPException(400, "Filen er for stor (maks. 15 MB)")
     if not data.startswith(b"%PDF"):
         raise HTTPException(400, "Filen er ikke en PDF")
+
+    from services.packaging_pdf import parse_packing_list
 
     try:
         parsed = parse_packing_list(data)
@@ -531,6 +537,8 @@ def summary(db: Session = Depends(get_db)):
 
 @router.get("/export")
 def export_excel(year: int | None = Query(default=None), db: Session = Depends(get_db)):
+    from services.packaging_excel import build_workbook
+
     rows = _rows_by_quarter(db, year=year)
     outbound = _outbound_by_quarter(db, year=year)
     data = build_workbook(rows, outbound)

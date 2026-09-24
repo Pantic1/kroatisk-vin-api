@@ -13,7 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config.config import engine, sessionLocal          # noqa: E402
-from config.model import Base, PackagingMaterial        # noqa: E402
+from config.model import (Base, PackagingInvoice,        # noqa: E402
+                          PackagingLine, PackagingMaterial,
+                          PackagingOutbound)
 
 # (varenr, navn, kg tom flaske, flaskestørrelse, ekstra søgeord)
 MATERIALS = [
@@ -49,7 +51,15 @@ CARTON_KG = 0.0648   # pap pr. flaske – ens for alle varer i regnearket
 
 
 def main():
-    Base.metadata.create_all(bind=engine, tables=[PackagingMaterial.__table__])
+    # Opretter de emballage-tabeller der mangler. API'et gør det ikke selv:
+    # det kører serverless, og et create_all ved hver kold start koster
+    # unødige databasekald.
+    Base.metadata.create_all(bind=engine, tables=[
+        PackagingMaterial.__table__,
+        PackagingInvoice.__table__,
+        PackagingLine.__table__,
+        PackagingOutbound.__table__,
+    ])
     db = sessionLocal()
     created = updated = 0
     try:

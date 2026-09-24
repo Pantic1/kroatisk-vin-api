@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import io
 import re
-import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 
 import pdfplumber
+
+from services.packaging_helpers import normalize
 
 # Enheder der kan stå sidst på en varelinje (kom = stk på kroatisk)
 UNIT_RE = r"(?:kom|kos|kpl|pcs|stk|st|kar|ltr|l)"
@@ -160,20 +161,6 @@ def parse_packing_list(data: bytes) -> dict:
 # ---------------------------------------------------------------
 # Matchning mod emballage-stamdata
 # ---------------------------------------------------------------
-
-def normalize(s: str) -> str:
-    """Slår accenter, store bogstaver og tegnsætning sammen, så
-    'GRAŠEVINA 0,75l 2024.' og 'Graševina 0,75L 2024' bliver ens."""
-    if not s:
-        return ""
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    # đ/Đ har ingen kombinerende accent
-    s = s.replace("đ", "d").replace("Đ", "D")
-    s = s.lower()
-    s = re.sub(r"[^a-z0-9]+", " ", s)
-    return re.sub(r"\s+", " ", s).strip()
-
 
 def _name_score(a: str, b: str) -> float:
     na, nb = normalize(a), normalize(b)
