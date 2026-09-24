@@ -18,12 +18,12 @@ from openpyxl.utils import get_column_letter
 # ende af overskriftsfeltet, så en lang etiket på én linje bliver dækket af den.
 HEADERS = [
     "Dato", "Faktura", "Kvartal", "Vare", "Antal", "Tom flaske\nkg",
-    "Glas i alt\nkg", "Pap pr.\nflaske kg", "Pap i alt\nkg", "Status", "Note",
+    "Glas i alt\nkg", "Pap pr.\nflaske kg", "Pap i alt\nkg", "Note",
 ]
-COL_WIDTHS = [12, 13, 11, 38, 10, 13, 13, 16, 13, 12, 26]
-# Tal højrestilles, tekst venstrestilles, dato og status centreres
+COL_WIDTHS = [12, 13, 11, 38, 10, 13, 13, 16, 13, 30]
+# Tal højrestilles, tekst venstrestilles, datoen centreres
 COL_ALIGN = ["center", "left", "center", "left", "right", "right",
-             "right", "right", "right", "center", "left"]
+             "right", "right", "right", "left"]
 
 NAVY = "1F3864"
 HEADER_FILL = PatternFill("solid", fgColor=NAVY)
@@ -117,14 +117,14 @@ def _write_quarter_sheet(wb: Workbook, quarter: str, rows: list[dict]) -> int:
             (None if missing else f"=E{r}*F{r}", KG3),
             (row.get("carton_kg"), KG4),
             (f"=E{r}*H{r}", KG3),
-            ("MANGLER" if missing else "OK", None),
             (row.get("note"), None),
         ]
         for c, (value, fmt) in enumerate(vals, start=1):
             cell = ws.cell(row=r, column=c, value=value)
             _style_cell(cell, align=COL_ALIGN[c - 1], fmt=fmt,
                         zebra=zebra, missing=missing)
-        ws.cell(row=r, column=10).font = MISSING_FONT if missing else OK_FONT
+        # Uden en statuskolonne er den tonede række markeringen af at
+        # flaskevægten mangler
         ws.row_dimensions[r].height = ROW_HEIGHT
         r += 1
 
@@ -135,9 +135,10 @@ def _write_quarter_sheet(wb: Workbook, quarter: str, rows: list[dict]) -> int:
     if last >= 2:
         ws.cell(row=total_row, column=5, value=f"=SUM(E2:E{last})")
         # Samme spærre som i dit eget ark: mangler der en vægt, må totalen ikke
-        # præsenteres som et facit.
+        # præsenteres som et facit. Der tælles tomme flaskevægte, siden der
+        # ikke længere er en statuskolonne at se efter "MANGLER" i.
         ws.cell(row=total_row, column=7,
-                value=f'=IF(COUNTIF(J2:J{last},"MANGLER")>0,"UFULDSTÆNDIG",SUM(G2:G{last}))')
+                value=f'=IF(COUNTBLANK(F2:F{last})>0,"UFULDSTÆNDIG",SUM(G2:G{last}))')
         ws.cell(row=total_row, column=9, value=f"=SUM(I2:I{last})")
     else:
         for c in (5, 7, 9):
@@ -149,7 +150,7 @@ def _write_quarter_sheet(wb: Workbook, quarter: str, rows: list[dict]) -> int:
     ws.row_dimensions[total_row].height = 20
 
     if last >= 2:
-        ws.auto_filter.ref = f"A1:K{last}"
+        ws.auto_filter.ref = f"A1:J{last}"
     return total_row
 
 
@@ -215,16 +216,16 @@ OVERVIEW_HEADERS = [
     "Flasker", "Glas kg", "Pap kg",
     "Flasker", "Glas kg", "Pap kg",
     "Flasker", "Glas kg", "Pap kg",
-    "Status", "Bemærkning",
+    "Bemærkning",
 ]
-OVERVIEW_WIDTHS = [12, 11, 12, 11, 11, 12, 11, 11, 12, 11, 15, 42]
+OVERVIEW_WIDTHS = [12, 11, 12, 11, 11, 12, 11, 11, 12, 11, 46]
 # Grupper over overskriftsrækken: (starttekst, antal kolonner, farve)
 OVERVIEW_GROUPS = [
     ("", 1, None),
     ("Importeret fra Galić", 3, "1F3864"),
     ("Solgt ud af huset", 3, "B45309"),
     ("Tilbage i huset", 3, "1E7B4D"),
-    ("", 2, None),
+    ("", 1, None),
 ]
 
 
@@ -233,14 +234,14 @@ def _write_overview(wb: Workbook, totals: list[tuple[str, int]],
     ws = wb.create_sheet(title="Oversigt", index=len(wb.worksheets))
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:L1")
+    ws.merge_cells("A1:K1")
     t = ws["A1"]
     t.value = "Kvartalsafregning – emballage"
     t.font = TITLE_FONT
     t.alignment = Alignment(horizontal="left", vertical="center")
     ws.row_dimensions[1].height = 24
 
-    ws.merge_cells("A2:L2")
+    ws.merge_cells("A2:K2")
     sub = ws["A2"]
     sub.value = ("Importeret glas og pap fra Galić, minus det kunderne har taget "
                  "med hjem. Det der er tilbage, er drukket i huset.")
@@ -270,7 +271,7 @@ def _write_overview(wb: Workbook, totals: list[tuple[str, int]],
     ws.row_dimensions[5].height = 22
     ws.freeze_panes = "B6"
 
-    align = ["center"] + ["right"] * 9 + ["center", "left"]
+    align = ["center"] + ["right"] * 9 + ["left"]
 
     # Områder på "Ud af huset"-arket, som der summeres hen over pr. kvartal
     has_out = out_last_row >= 2
@@ -296,7 +297,7 @@ def _write_overview(wb: Workbook, totals: list[tuple[str, int]],
             # forkert tal.
             (f'=IF(ISNUMBER(C{r}),C{r}-F{r},"UFULDSTÆNDIG")', KG3),
             (f"=D{r}-G{r}", KG3),
-            (f'=IF(ISNUMBER(I{r}),"OK","UFULDSTÆNDIG")', None),
+            # Bemærkningen siger med ord det statuskolonnen sagde med et flag
             (f'=IF(ISNUMBER(I{r}),"Alle glasvægte kendt","Mangler flaskevægt på en eller flere varer")', None),
         ]
         for c, (value, fmt) in enumerate(vals, start=1):
@@ -317,7 +318,7 @@ def _write_overview(wb: Workbook, totals: list[tuple[str, int]],
         for col_ in range(2, 11):
             letter = get_column_letter(col_)
             ws.cell(row=tr, column=col_, value=f"=SUM({letter}6:{letter}{last})")
-    for c in range(1, 13):
+    for c in range(1, 12):
         fmt = COUNT_FMT if c in (2, 5, 8) else (KG3 if 2 < c < 11 else None)
         _style_cell(ws.cell(row=tr, column=c), align=align[c - 1],
                     fmt=fmt, total=True)
